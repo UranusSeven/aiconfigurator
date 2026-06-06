@@ -8,6 +8,8 @@ BASE = Path(__file__).resolve().parent
 OUT_CSV = BASE / "b300_sota_raw_pareto_results.csv"
 OUT_FRONTIER_CSV = BASE / "b300_sota_model_pareto_frontiers.csv"
 OUT_PNG = BASE / "b300_sota_pareto_per_user_vs_per_gpu.png"
+OUT_OUTPUT_FRONTIER_CSV = BASE / "b300_sota_output_token_pareto_frontiers.csv"
+OUT_OUTPUT_PNG = BASE / "b300_sota_pareto_per_user_vs_output_tokens.png"
 
 
 RUN_LABELS = {
@@ -61,6 +63,7 @@ raw["satisfies_sla"] = (raw["ttft"] <= 2000) & (raw["tpot"] <= 30)
 raw["cluster_total_gpus"] = 8
 raw["raw_candidate_tps"] = raw["tokens/s"]
 raw["cluster_tps_8gpu"] = raw["tokens/s/gpu_cluster"] * raw["cluster_total_gpus"]
+raw["output_token_throughput_8gpu"] = raw["cluster_tps_8gpu"]
 raw["per_gpu_throughput_8gpu"] = raw["tokens/s/gpu_cluster"]
 raw["per_user_tps"] = raw["tokens/s/user"]
 raw["plot_label"] = (
@@ -89,6 +92,7 @@ frontier = raw.loc[frontier_indices].sort_values(["model_label", "per_user_tps"]
 
 raw.to_csv(OUT_CSV, index=False)
 frontier.to_csv(OUT_FRONTIER_CSV, index=False)
+frontier.to_csv(OUT_OUTPUT_FRONTIER_CSV, index=False)
 
 plt.style.use("seaborn-v0_8-whitegrid")
 fig, ax = plt.subplots(figsize=(12, 7.5))
@@ -167,9 +171,71 @@ ax.margins(x=0.06, y=0.08)
 fig.tight_layout()
 fig.savefig(OUT_PNG, dpi=180)
 
+fig, ax = plt.subplots(figsize=(12, 7.5))
+
+for (model_label, mode), group in raw.groupby(["model_label", "serving_mode"]):
+    ax.scatter(
+        group["per_user_tps"],
+        group["output_token_throughput_8gpu"],
+        s=36,
+        alpha=0.35,
+        color=colors.get(model_label, "#6b7280"),
+        marker=markers.get(mode, "s"),
+        label=f"{model_label} {mode}",
+        edgecolors="none",
+    )
+
+for model_label, model_frontier in frontier.groupby("model_label"):
+    model_frontier = model_frontier.sort_values("per_user_tps")
+    color = colors.get(model_label, "#6b7280")
+    ax.plot(
+        model_frontier["per_user_tps"],
+        model_frontier["output_token_throughput_8gpu"],
+        color=color,
+        linewidth=2.4,
+        marker="D",
+        markersize=5.5,
+        label=f"{model_label} frontier",
+        zorder=5,
+    )
+
+    for _, row in model_frontier.tail(1).iterrows():
+        label = f"{row['model_label']}\n{row['backend_label']} {row['serving_mode']}"
+        ax.annotate(
+            label,
+            (row["per_user_tps"], row["output_token_throughput_8gpu"]),
+            textcoords="offset points",
+            xytext=(7, 7),
+            fontsize=8.5,
+            color=color,
+        )
+
+for _, row in best_rows.iterrows():
+    ax.scatter(
+        [row["per_user_tps"]],
+        [row["output_token_throughput_8gpu"]],
+        s=110,
+        facecolors="none",
+        edgecolors="#111827",
+        linewidths=1.8,
+        zorder=6,
+    )
+
+ax.set_title("DGX-B300 SOTA Per-Model Pareto Frontiers", fontsize=16, pad=14)
+ax.set_xlabel("Per-user TPS (tokens/s/user)")
+ax.set_ylabel("Output Token Throughput (tokens/s, 8-GPU normalized)")
+ax.grid(True, color="#e5e7eb")
+ax.legend(loc="upper right", fontsize=8.5, frameon=True)
+ax.margins(x=0.06, y=0.08)
+
+fig.tight_layout()
+fig.savefig(OUT_OUTPUT_PNG, dpi=180)
+
 print(f"Wrote {OUT_CSV}")
 print(f"Wrote {OUT_FRONTIER_CSV}")
 print(f"Wrote {OUT_PNG}")
+print(f"Wrote {OUT_OUTPUT_FRONTIER_CSV}")
+print(f"Wrote {OUT_OUTPUT_PNG}")
 print(
     f"Rows: {len(raw)}, SLA rows: {int(raw['satisfies_sla'].sum())}, "
     f"frontier rows: {len(frontier)}"
