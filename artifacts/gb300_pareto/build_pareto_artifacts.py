@@ -6,8 +6,8 @@ import pandas as pd
 
 BASE = Path(__file__).resolve().parent
 OUT_CSV = BASE / "gb300_sota_raw_pareto_results.csv"
-OUT_FRONTIER_CSV = BASE / "gb300_sota_pareto_frontier.csv"
-OUT_PNG = BASE / "gb300_sota_pareto_tps_vs_per_gpu.png"
+OUT_FRONTIER_CSV = BASE / "gb300_sota_model_pareto_frontiers.csv"
+OUT_PNG = BASE / "gb300_sota_pareto_per_user_vs_per_gpu.png"
 
 
 RUN_LABELS = {
@@ -61,6 +61,7 @@ raw["cluster_total_gpus"] = 72
 raw["raw_candidate_tps"] = raw["tokens/s"]
 raw["cluster_tps_72gpu"] = raw["tokens/s/gpu_cluster"] * raw["cluster_total_gpus"]
 raw["per_gpu_throughput_72gpu"] = raw["tokens/s/gpu_cluster"]
+raw["per_user_tps"] = raw["tokens/s/user"]
 raw["plot_label"] = (
     raw["model_label"]
     + " / "
@@ -70,20 +71,20 @@ raw["plot_label"] = (
 )
 
 frontier_source = raw[raw["satisfies_sla"]].copy()
-frontier_source = frontier_source.sort_values(
-    ["cluster_tps_72gpu", "per_gpu_throughput_72gpu"], ascending=[False, False]
-)
-
 frontier_indices = []
-best_per_gpu = float("-inf")
-for idx, row in frontier_source.iterrows():
-    per_gpu = float(row["per_gpu_throughput_72gpu"])
-    if per_gpu > best_per_gpu:
-        frontier_indices.append(idx)
-        best_per_gpu = per_gpu
+for _, model_group in frontier_source.groupby("model_label"):
+    sorted_group = model_group.sort_values(
+        ["per_user_tps", "per_gpu_throughput_72gpu"], ascending=[False, False]
+    )
+    best_per_gpu = float("-inf")
+    for idx, row in sorted_group.iterrows():
+        per_gpu = float(row["per_gpu_throughput_72gpu"])
+        if per_gpu > best_per_gpu:
+            frontier_indices.append(idx)
+            best_per_gpu = per_gpu
 
-raw["is_global_pareto_frontier"] = raw.index.isin(frontier_indices)
-frontier = raw.loc[frontier_indices].sort_values("cluster_tps_72gpu")
+raw["is_model_pareto_frontier"] = raw.index.isin(frontier_indices)
+frontier = raw.loc[frontier_indices].sort_values(["model_label", "per_user_tps"])
 
 raw.to_csv(OUT_CSV, index=False)
 frontier.to_csv(OUT_FRONTIER_CSV, index=False)
@@ -103,7 +104,7 @@ markers = {
 
 for (model_label, mode), group in raw.groupby(["model_label", "serving_mode"]):
     ax.scatter(
-        group["cluster_tps_72gpu"],
+        group["per_user_tps"],
         group["per_gpu_throughput_72gpu"],
         s=36,
         alpha=0.35,
@@ -113,27 +114,29 @@ for (model_label, mode), group in raw.groupby(["model_label", "serving_mode"]):
         edgecolors="none",
     )
 
-if not frontier.empty:
+for model_label, model_frontier in frontier.groupby("model_label"):
+    model_frontier = model_frontier.sort_values("per_user_tps")
+    color = colors.get(model_label, "#6b7280")
     ax.plot(
-        frontier["cluster_tps_72gpu"],
-        frontier["per_gpu_throughput_72gpu"],
-        color="#111827",
-        linewidth=2.2,
+        model_frontier["per_user_tps"],
+        model_frontier["per_gpu_throughput_72gpu"],
+        color=color,
+        linewidth=2.4,
         marker="D",
-        markersize=6,
-        label="Pareto frontier",
+        markersize=5.5,
+        label=f"{model_label} frontier",
         zorder=5,
     )
 
-    for _, row in frontier.iterrows():
+    for _, row in model_frontier.tail(1).iterrows():
         label = f"{row['model_label']}\n{row['backend_label']} {row['serving_mode']}"
         ax.annotate(
             label,
-            (row["cluster_tps_72gpu"], row["per_gpu_throughput_72gpu"]),
+            (row["per_user_tps"], row["per_gpu_throughput_72gpu"]),
             textcoords="offset points",
             xytext=(7, 7),
             fontsize=8.5,
-            color="#111827",
+            color=color,
         )
 
 best_rows = (
@@ -144,7 +147,7 @@ best_rows = (
 )
 for _, row in best_rows.iterrows():
     ax.scatter(
-        [row["cluster_tps_72gpu"]],
+        [row["per_user_tps"]],
         [row["per_gpu_throughput_72gpu"]],
         s=110,
         facecolors="none",
@@ -153,10 +156,9 @@ for _, row in best_rows.iterrows():
         zorder=6,
     )
 
-ax.set_title("GB300 SOTA Model Pareto Frontier", fontsize=16, pad=14)
-ax.set_xlabel("TPS (tokens/s)")
+ax.set_title("GB300 SOTA Per-Model Pareto Frontiers", fontsize=16, pad=14)
+ax.set_xlabel("Per-user TPS (tokens/s/user)")
 ax.set_ylabel("Per-GPU Throughput (tokens/s/GPU)")
-ax.ticklabel_format(style="plain", axis="x")
 ax.grid(True, color="#e5e7eb")
 ax.legend(loc="upper left", fontsize=8.5, frameon=True)
 ax.margins(x=0.06, y=0.08)
