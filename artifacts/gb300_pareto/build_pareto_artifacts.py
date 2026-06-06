@@ -8,6 +8,8 @@ BASE = Path(__file__).resolve().parent
 OUT_CSV = BASE / "gb300_sota_raw_pareto_results.csv"
 OUT_FRONTIER_CSV = BASE / "gb300_sota_model_pareto_frontiers.csv"
 OUT_PNG = BASE / "gb300_sota_pareto_per_user_vs_per_gpu.png"
+OUT_GPU_OUTPUT_FRONTIER_CSV = BASE / "gb300_sota_per_gpu_output_token_pareto_frontiers.csv"
+OUT_GPU_OUTPUT_PNG = BASE / "gb300_sota_pareto_per_user_vs_per_gpu_output_tokens.png"
 OUT_OUTPUT_FRONTIER_CSV = BASE / "gb300_sota_output_token_pareto_frontiers.csv"
 OUT_OUTPUT_PNG = BASE / "gb300_sota_pareto_per_user_vs_output_tokens.png"
 
@@ -64,6 +66,7 @@ raw["raw_candidate_tps"] = raw["tokens/s"]
 raw["cluster_tps_72gpu"] = raw["tokens/s/gpu_cluster"] * raw["cluster_total_gpus"]
 raw["output_token_throughput_72gpu"] = raw["cluster_tps_72gpu"]
 raw["per_gpu_throughput_72gpu"] = raw["tokens/s/gpu_cluster"]
+raw["per_gpu_output_token_throughput"] = raw["tokens/s/gpu_cluster"]
 raw["per_user_tps"] = raw["tokens/s/user"]
 raw["plot_label"] = (
     raw["model_label"]
@@ -91,6 +94,7 @@ frontier = raw.loc[frontier_indices].sort_values(["model_label", "per_user_tps"]
 
 raw.to_csv(OUT_CSV, index=False)
 frontier.to_csv(OUT_FRONTIER_CSV, index=False)
+frontier.to_csv(OUT_GPU_OUTPUT_FRONTIER_CSV, index=False)
 frontier.to_csv(OUT_OUTPUT_FRONTIER_CSV, index=False)
 
 plt.style.use("seaborn-v0_8-whitegrid")
@@ -162,13 +166,14 @@ for _, row in best_rows.iterrows():
 
 ax.set_title("GB300 SOTA Per-Model Pareto Frontiers", fontsize=16, pad=14)
 ax.set_xlabel("Per-user TPS (tokens/s/user)")
-ax.set_ylabel("Per-GPU Throughput (tokens/s/GPU)")
+ax.set_ylabel("Per-GPU Output Token Throughput (output tokens/s/GPU)")
 ax.grid(True, color="#e5e7eb")
 ax.legend(loc="upper left", fontsize=8.5, frameon=True)
 ax.margins(x=0.06, y=0.08)
 
 fig.tight_layout()
 fig.savefig(OUT_PNG, dpi=180)
+fig.savefig(OUT_GPU_OUTPUT_PNG, dpi=180)
 
 fig, ax = plt.subplots(figsize=(12, 7.5))
 
@@ -233,6 +238,8 @@ fig.savefig(OUT_OUTPUT_PNG, dpi=180)
 print(f"Wrote {OUT_CSV}")
 print(f"Wrote {OUT_FRONTIER_CSV}")
 print(f"Wrote {OUT_PNG}")
+print(f"Wrote {OUT_GPU_OUTPUT_FRONTIER_CSV}")
+print(f"Wrote {OUT_GPU_OUTPUT_PNG}")
 print(f"Wrote {OUT_OUTPUT_FRONTIER_CSV}")
 print(f"Wrote {OUT_OUTPUT_PNG}")
 print(f"Rows: {len(raw)}, SLA rows: {int(raw['satisfies_sla'].sum())}, frontier rows: {len(frontier)}")
